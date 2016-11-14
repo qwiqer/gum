@@ -7,9 +7,11 @@ module Gum
     class_attribute :orders
     class_attribute :query_param
 
-    self.fields = Set.new
-    self.filters = {}
-    self.orders = {}
+    def self.inherited(base)
+      self.fields = Set.new
+      self.filters = {}
+      self.orders = {}
+    end
 
     # @param [Chewy::Type] type
     def self.use(type)
