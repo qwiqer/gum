@@ -1,5 +1,7 @@
 module Gum
   class Search
+    extend Filters
+
     class_attribute :type
     class_attribute :scope
     class_attribute :fields
@@ -7,14 +9,15 @@ module Gum
     class_attribute :orders
     class_attribute :query_param
 
-    def self.inherited(base)
-      self.fields = Set.new
-      self.filters = {}
-      self.orders = {}
+    def self.inherited(klass)
+      klass.fields = Set.new
+      klass.filters = []
+      klass.orders = []
     end
 
     # @param [Chewy::Type] type
     def self.use(type)
+      raise ArgumentError, 'type must be a Chewy::Type' unless type < Chewy::Type
       self.type = type
     end
 
@@ -23,62 +26,47 @@ module Gum
     end
 
     def self.searchable(*attrs)
-      self.fields += attrs
+      self.fields += attrs.flatten
     end
 
     def self.query(attr)
       self.query_param = attr
     end
 
-    Filters.singleton_methods.each do |method|
-      define_singleton_method method do |*attrs|
-        options = attrs.extract_options!
-        attrs.each do |attr|
-          filters[attr] = Filters.public_send(method, attr, options)
-        end
-      end
-    end
-
-    def self.order_by(*attrs)
-      attrs.each do |attr|
-        orders[attr] =
-          lambda do |params|
-            Coerce.split(attr, params) do |field, direction|
-              { field => direction }
-            end
-          end
+    def self.order_by(*args)
+      Factory.build(Gum::OrderBy, args) do |order|
+        orders.push order
       end
     end
 
     def initialize(params)
       @params = params
-      @sort_params = @params[:sort].split(',') if @params[:sort]
       @q = params[query_param]
     end
 
+    def to_query
+      type.query(query).filter(compile_filters).order(compile_orders)
+    end
+
+    def search
+      to_query.load(scope: scope)
+    rescue Elasticsearch::Transport::Transport::Errors::BadRequest => e
+      @error = e.message.match(/QueryParsingException\[([^;]+)\]/).try(:[], 1)
+      type.none
+    end
+
+    private
+
     def compile_filters
-      filters.map do |_, proc|
-        proc.call(@params)
+      filters.map do |filter|
+        filter.render(@params)
       end.compact
     end
 
     def compile_orders
-      if @sort_params
-        self.orders = {}
-        @sort_params.each do |attr|
-          self.class.order_by(attr)
-        end
-      end
-      orders.map do |attr, proc|
-        proc.call(attr)
+      orders.map do |order|
+        order.render(@params)
       end.compact
-    end
-
-    def search
-      type.query(query).filter(compile_filters).order(compile_orders).load(scope: scope)
-    rescue Elasticsearch::Transport::Transport::Errors::BadRequest => e
-      @error = e.message.match(/QueryParsingException\[([^;]+)\]/).try(:[], 1)
-      type.none
     end
 
     def query

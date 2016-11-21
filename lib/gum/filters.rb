@@ -1,91 +1,35 @@
+require 'gum/factory'
+require 'gum/filter'
+require 'gum/filters/term'
+require 'gum/filters/terms'
+require 'gum/filters/exists'
+require 'gum/filters/prefix'
+require 'gum/filters/wildcard'
+require 'gum/filters/regexp'
+require 'gum/filters/fuzzy'
+require 'gum/filters/range'
+require 'gum/filters/geo'
+require 'gum/filters/geo/bbox'
+require 'gum/filters/geo/distance'
+require 'gum/filters/geo/range'
+require 'gum/order'
+
 module Gum
   module Filters
-    module_function
-
-    def range(attr, flags = {})
-      lambda do |params|
-        attr_from = params["#{attr}_from"]
-        attr_to = params["#{attr}_to"]
-        return if attr_from.blank? && attr_to.blank?
-        Coerce.range(attr, params) do |value|
-          { range: { attr => value.update(flags) } }
+    def self.register(method, klass = nil)
+      define_method method do |*args|
+        Factory.build(klass || method, args) do |filter|
+          filters.push filter
         end
       end
     end
 
-    def term(attr, flags = {})
-      lambda do |params|
-        Coerce.term(attr, params) do |value|
-          if flags[:boost]
-            { term: { attr => { value: value, boost: flags[:boost] } } }
-          else
-            { term: { attr => value }.update(flags) }
-          end
-        end
-      end
+    def self.define_filter(method, &block)
+      register method, Class.new(Gum::Filter, &block)
     end
 
-    def terms(attr, _flags = {})
-      lambda do |params|
-        Coerce.terms(attr, params) do |value|
-          { terms: { attr => value } }
-        end
-      end
-    end
-
-    def exists(attr, _flags = {})
-      lambda do |params|
-        Coerce.exists(attr, params) do |value|
-          if value
-            { exists: { field: attr } }
-          else
-            { bool: { must_not: { exists: { field: attr } } } }
-          end
-        end
-      end
-    end
-
-    def prefix(attr, flags = {})
-      lambda do |params|
-        Coerce.term(attr, params) do |value|
-          { prefix: { attr => value }.update(flags) }
-        end
-      end
-    end
-
-    def wildcard(attr, flags = {})
-      lambda do |params|
-        Coerce.term(attr, params) do |value|
-          { wildcard: { attr => value }.update(flags) }
-        end
-      end
-    end
-
-    def regexp(attr, flags = {})
-      lambda do |params|
-        Coerce.term(attr, params) do |value|
-          { regexp: flags.update(attr => value) }
-        end
-      end
-    end
-
-    def fuzzy(attr, separator: '_', **flags)
-      lambda do |params|
-        Coerce.split(attr, params, separator: separator, default: flags[:fuzziness]) do |value, fuzziness|
-          { fuzzy: { attr => { value: value, fuzziness: fuzziness }.update(flags) } }
-        end
-      end
-    end
-
-    def default_range_result(attr_from, attr_to)
-      {
-        range: {
-          attr => {
-            gte: attr_from,
-            lte: attr_to
-          }
-        }
-      }
+    %i(term terms prefix wildcard regexp fuzzy exists geo range).each do |method|
+      register method
     end
   end
 end
