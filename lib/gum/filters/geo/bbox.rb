@@ -54,7 +54,7 @@ module Gum
           private
 
           def number_pattern
-            '-?\\d{,3}\\.?\\d{,12}'
+            '-?\\d{,3}\\.?\\d{,16}'
           end
 
           def regexp
